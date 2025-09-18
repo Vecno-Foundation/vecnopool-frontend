@@ -9,12 +9,10 @@ use std::collections::HashSet;
 use crate::db::db::Db;
 
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum WsNotification {
-    MinerStatsUpdated,
-    BalancesUpdated,
-    BlocksUpdated,
-    HashrateUpdated,
+pub struct WsNotification {
+    #[serde(rename = "type")]
+    r#type: String,
+    data: Option<String>, // Address payload from PostgreSQL notification
 }
 
 #[derive(Clone)]
@@ -142,13 +140,23 @@ pub async fn start_notification_listener() {
 
     tokio::spawn(async move {
         while let Ok(notification) = listener.recv().await {
+            log::info!("Received notification on {}: {}", notification.channel(), notification.payload());
             let message = match notification.channel() {
-                "shares_channel" => serde_json::to_string(&WsNotification::HashrateUpdated).unwrap(),
-                "balances_channel" => serde_json::to_string(&WsNotification::BalancesUpdated).unwrap(),
-                "blocks_channel" => serde_json::to_string(&WsNotification::BlocksUpdated).unwrap(),
+                "shares_channel" => WsNotification {
+                    r#type: "HashrateUpdated".to_string(),
+                    data: Some(notification.payload().to_string()),
+                },
+                "balances_channel" => WsNotification {
+                    r#type: "BalancesUpdated".to_string(),
+                    data: Some(notification.payload().to_string()),
+                },
+                "blocks_channel" => WsNotification {
+                    r#type: "BlocksUpdated".to_string(),
+                    data: Some(notification.payload().to_string()),
+                },
                 _ => continue,
             };
-            ws_server.do_send(BroadcastMessage(message));
+            ws_server.do_send(BroadcastMessage(serde_json::to_string(&message).unwrap()));
         }
     });
 }

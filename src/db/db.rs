@@ -83,6 +83,8 @@ impl Db {
                 SELECT address, available_balance, total_earned_balance
                 FROM balances
                 WHERE address LIKE $1 || '%'
+                ORDER BY total_earned_balance DESC
+                LIMIT 20
                 "#,
             )
             .bind(addr),
@@ -90,6 +92,8 @@ impl Db {
                 r#"
                 SELECT address, available_balance, total_earned_balance
                 FROM balances
+                ORDER BY total_earned_balance DESC
+                LIMIT 20
                 "#,
             ),
         };
@@ -98,6 +102,7 @@ impl Db {
             .fetch_all(&self.pool)
             .await
             .context("Failed to get balances")?;
+        log::info!("Fetched {} balances", balances.len());
         Ok(balances)
     }
 

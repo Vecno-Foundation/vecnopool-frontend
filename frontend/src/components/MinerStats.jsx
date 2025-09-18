@@ -30,11 +30,11 @@ function MinerStats({ address, ws }) {
   const fetchShares = async () => {
     setLoading(true);
     try {
-      // Calculate time range: 00:00 today to start of current 10-minute interval
       const now = new Date();
       const midnightToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const since = Math.floor(midnightToday.getTime() / 1000);
-      const currentTenMinStart = Math.floor(now.getTime() / 1000 / 600) * 600; // Start of current 10-min interval
+      const currentTenMinStart = Math.floor(now.getTime() / 1000 / 600) * 600;
+      console.log('MinerStats time range:', { since, currentTenMinStart });
       const response = await axios.get('/api/shares', {
         params: address ? { address, since, until: currentTenMinStart } : { since, until: currentTenMinStart },
       });
@@ -51,7 +51,7 @@ function MinerStats({ address, ws }) {
 
   useEffect(() => {
     fetchShares();
-    const interval = setInterval(fetchShares, 60000); // Refresh every minute
+    const interval = setInterval(fetchShares, 60000);
     return () => clearInterval(interval);
   }, [address]);
 
@@ -61,7 +61,7 @@ function MinerStats({ address, ws }) {
     const handleMessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        if (message.type === 'HashrateUpdated') {
+        if (message.type === 'HashrateUpdated' && (!address || message.data === address)) {
           fetchShares();
         }
       } catch (err) {
@@ -76,14 +76,12 @@ function MinerStats({ address, ws }) {
     };
   }, [ws, address]);
 
-  // Aggregate shares into 10-minute buckets up to the last completed interval
   const now = new Date();
   const midnightToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const since = Math.floor(midnightToday.getTime() / 1000);
-  const currentTenMinStart = Math.floor(now.getTime() / 1000 / 600) * 600; // Start of current 10-min interval
-  const tenMinInterval = 600; // 10 minutes in seconds
-  const totalIntervals = 24 * 6; // 144 intervals (24 hours * 6 intervals/hour)
-  const currentIntervalIndex = Math.floor((currentTenMinStart - since) / tenMinInterval); // Index of current interval
+  const currentTenMinStart = Math.floor(now.getTime() / 1000 / 600) * 600;
+  const tenMinInterval = 600;
+  const currentIntervalIndex = Math.floor((currentTenMinStart - since) / tenMinInterval);
   const tenMinTimestamps = Array.from(
     { length: currentIntervalIndex },
     (_, i) => since + i * tenMinInterval
@@ -106,6 +104,8 @@ function MinerStats({ address, ws }) {
   );
 
   const difficulties = tenMinDifficulties.map((point) => point.difficulty);
+
+  console.log('MinerStats processed data:', { labels, difficulties });
 
   const chartData = {
     labels,
@@ -133,6 +133,7 @@ function MinerStats({ address, ws }) {
       tooltip: {
         callbacks: {
           label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(2)}`,
+          afterLabel: () => (address ? `Address: ${address}\nVecnoScan: https://vecnoscan.org/addresses/vecno:${address}` : ''),
         },
       },
     },
@@ -140,9 +141,8 @@ function MinerStats({ address, ws }) {
       x: {
         title: { display: true, text: 'Time (10-min intervals)' },
         ticks: {
-          // Show fewer labels to avoid clutter (e.g., every hour)
           callback: function (value, index) {
-            const hourInterval = index % 6 === 0; // Show label every hour (6 * 10-min intervals)
+            const hourInterval = index % 6 === 0;
             return hourInterval ? this.getLabelForValue(value) : '';
           },
           maxRotation: 45,

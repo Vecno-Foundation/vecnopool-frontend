@@ -84,6 +84,7 @@ async fn get_hashrate(db: web::Data<Db>, query: web::Query<std::collections::Has
 
     match query.fetch_all(&db.pool).await {
         Ok(rows) => {
+            log::info!("Fetched {} hashrate rows", rows.len());
             let points: Vec<HashratePoint> = rows
                 .into_iter()
                 .map(|(timestamp, total_difficulty)| HashratePoint {
@@ -96,6 +97,21 @@ async fn get_hashrate(db: web::Data<Db>, query: web::Query<std::collections::Has
         Err(e) => {
             log::error!("Failed to fetch hashrate: {:?}", e);
             HttpResponse::InternalServerError().body("Failed to fetch hashrate")
+        }
+    }
+}
+
+#[actix_web::get("/api/balances")]
+async fn get_balances(
+    db: web::Data<Db>,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let address = query.get("address").map(|x| x.as_str());
+    match db.get_balances(address).await {
+        Ok(balances) => HttpResponse::Ok().json(balances),
+        Err(e) => {
+            log::error!("Failed to get balances: {:?}", e);
+            HttpResponse::InternalServerError().body("Failed to fetch balances")
         }
     }
 }
@@ -139,6 +155,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_miner_stats)
             .service(get_shares)
             .service(get_hashrate)
+            .service(get_balances)
             .route("/ws", web::get().to(ws_index))
     })
     .bind("0.0.0.0:8080")?

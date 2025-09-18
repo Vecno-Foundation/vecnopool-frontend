@@ -52,20 +52,19 @@ function Hashrate({ address, ws }) {
   const fetchHashrate = async () => {
     setLoading(true);
     try {
-      // Calculate time range: 00:00 today to start of current 10-minute interval
       const now = new Date();
       const midnightToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const since = Math.floor(midnightToday.getTime() / 1000); // 00:00 today
-      const currentTenMinStart = Math.floor(now.getTime() / 1000 / 600) * 600; // Start of current 10-min interval
+      const since = Math.floor(midnightToday.getTime() / 1000);
+      const currentTenMinStart = Math.floor(now.getTime() / 1000 / 600) * 600;
+      console.log('Time range:', { since, currentTenMinStart });
       const url = address
         ? `/api/hashrate?address=${encodeURIComponent(address)}&since=${since}&until=${currentTenMinStart}`
         : `/api/hashrate?since=${since}&until=${currentTenMinStart}`;
       const response = await axios.get(url);
       console.log('Hashrate API response:', response.data);
 
-      // Create 10-minute buckets up to the last completed interval
-      const tenMinInterval = 600; // 10 minutes in seconds
-      const currentIntervalIndex = Math.floor((currentTenMinStart - since) / tenMinInterval); // Index of current interval
+      const tenMinInterval = 600;
+      const currentIntervalIndex = Math.floor((currentTenMinStart - since) / tenMinInterval);
       const tenMinTimestamps = Array.from(
         { length: currentIntervalIndex },
         (_, i) => since + i * tenMinInterval
@@ -78,34 +77,29 @@ function Hashrate({ address, ws }) {
         })
       );
 
-      // Aggregate data into 10-minute buckets by averaging hashrate
       const tenMinData = Array(currentIntervalIndex).fill(0);
       const tenMinUnits = Array(currentIntervalIndex).fill('hash/s');
-      const intervalCounts = Array(currentIntervalIndex).fill(0); // Track number of data points per interval
+      const intervalCounts = Array(currentIntervalIndex).fill(0);
       response.data.forEach((point) => {
         const pointTimestamp = point.timestamp;
         const intervalsDiff = Math.floor((pointTimestamp - since) / tenMinInterval);
         if (intervalsDiff >= 0 && intervalsDiff < currentIntervalIndex) {
           const index = intervalsDiff;
           const [value, unit] = hashSuffix(point.hashrate);
-          // Accumulate hashrate and count for averaging
           tenMinData[index] += value;
           intervalCounts[index] += 1;
-          tenMinUnits[index] = unit; // Use the unit from the last point in the interval
+          tenMinUnits[index] = unit;
         }
       });
 
-      // Calculate average hashrate for each interval
       for (let i = 0; i < currentIntervalIndex; i++) {
         if (intervalCounts[i] > 0) {
           tenMinData[i] /= intervalCounts[i];
         }
       }
 
-      // Set pointRadius for all recorded intervals
       const pointRadii = Array(currentIntervalIndex).fill(5);
 
-      // Determine the most common unit for the y-axis
       const unitCounts = tenMinUnits.reduce((acc, unit) => {
         acc[unit] = (acc[unit] || 0) + 1;
         return acc;
@@ -115,11 +109,9 @@ function Hashrate({ address, ws }) {
         'Ghash/s'
       );
 
-      // Convert all data to the most common unit for consistency
       const convertedData = tenMinData.map((value, index) => {
         const currentUnit = tenMinUnits[index];
         if (currentUnit === mostCommonUnit || intervalCounts[index] === 0) return value;
-        // Convert value to the most common unit
         const unitFactors = {
           'hash/s': 1,
           'Khash/s': 1000,
@@ -131,6 +123,12 @@ function Hashrate({ address, ws }) {
         const valueInHashes = value * unitFactors[currentUnit];
         const [convertedValue] = hashSuffix(valueInHashes);
         return convertedValue;
+      });
+
+      console.log('Processed hashrateData:', {
+        labels,
+        data: convertedData,
+        unit: mostCommonUnit,
       });
 
       setYAxisUnit(mostCommonUnit);
@@ -158,7 +156,7 @@ function Hashrate({ address, ws }) {
 
   useEffect(() => {
     fetchHashrate();
-    const interval = setInterval(fetchHashrate, 30000); // Refresh 30 sec
+    const interval = setInterval(fetchHashrate, 30000);
     return () => clearInterval(interval);
   }, [address]);
 
@@ -168,7 +166,7 @@ function Hashrate({ address, ws }) {
     const handleMessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        if (message.type === 'HashrateUpdated') {
+        if (message.type === 'HashrateUpdated' && (!address || message.data === address)) {
           fetchHashrate();
         }
       } catch (err) {
@@ -205,6 +203,7 @@ function Hashrate({ address, ws }) {
             tooltip: {
               callbacks: {
                 label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(2)} ${yAxisUnit}`,
+                afterLabel: () => (address ? `Address: ${address}\nVecnoScan: https://vecnoscan.org/addresses/vecno:${address}` : ''),
               },
             },
           },
@@ -219,9 +218,8 @@ function Hashrate({ address, ws }) {
             x: {
               title: { display: true, text: 'Time (10-min intervals)' },
               ticks: {
-                // Show fewer labels to avoid clutter (e.g., every hour)
                 callback: function (value, index) {
-                  const hourInterval = index % 6 === 0; // Show label every hour (6 * 10-min intervals)
+                  const hourInterval = index % 6 === 0;
                   return hourInterval ? this.getLabelForValue(value) : '';
                 },
                 maxRotation: 45,
