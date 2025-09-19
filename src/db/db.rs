@@ -20,6 +20,17 @@ impl Db {
     }
 
     pub async fn get_miner_stats(&self, address: Option<&str>) -> Result<Vec<MinerStats>> {
+        let window_time_ms: u64 = std::env::var("WINDOW_TIME_MS")
+            .map(|val| val.parse::<u64>().map_err(|e| anyhow::anyhow!("Invalid WINDOW_TIME_MS: {}", e)))
+            .unwrap_or(Ok(300_000))
+            .expect("Failed to parse WINDOW_TIME_MS");
+        let window_time_secs = window_time_ms / 1000;
+
+        let since = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs() as i64 - window_time_secs as i64;
+
         let query = match address {
             Some(addr) => sqlx::query(
                 r#"
@@ -32,12 +43,14 @@ impl Db {
                         FROM shares s2 
                         WHERE s2.address = s.address 
                         AND s2.reward_block_hash IS NULL
+                        AND s2.timestamp >= $1
                     ), 0) as invalid_shares
                 FROM shares s
-                WHERE s.address LIKE $1 || '%'
+                WHERE s.address LIKE $2 || '%' AND s.timestamp >= $1
                 GROUP BY s.address
                 "#,
             )
+            .bind(since)
             .bind(addr),
             None => sqlx::query(
                 r#"
@@ -50,11 +63,14 @@ impl Db {
                         FROM shares s2 
                         WHERE s2.address = s.address 
                         AND s2.reward_block_hash IS NULL
+                        AND s2.timestamp >= $1
                     ), 0) as invalid_shares
                 FROM shares s
+                WHERE s.timestamp >= $1
                 GROUP BY s.address
                 "#,
-            ),
+            )
+            .bind(since),
         };
 
         let rows = query
@@ -66,14 +82,55 @@ impl Db {
             .into_iter()
             .map(|row| {
                 let total_shares: i64 = row.get("total_shares");
+                let total_difficulty: i64 = row.get("total_difficulty");
                 MinerStats {
                     address: row.get("address"),
                     total_shares: total_shares as u64,
-                    total_difficulty: row.get::<i64, _>("total_difficulty") as u64,
+                    total_difficulty: total_difficulty as u64,
                 }
             })
             .collect();
         Ok(stats)
+    }
+
+    pub async fn get_hashrate(&self, address: Option<&str>, since: i64, until: i64, _interval_secs: i64) -> Result<Vec<(i64, i64)>> {
+        let start = std::time::Instant::now();
+        let query = match address {
+            Some(addr) => sqlx::query_as::<_, (i64, i64)>(
+                r#"
+                SELECT 
+                    (FLOOR(timestamp / 600) * 600)::BIGINT AS time_bucket,
+                    SUM(difficulty)::BIGINT AS total_difficulty
+                FROM shares
+                WHERE timestamp >= $1 AND timestamp < $2 AND address LIKE $3 || '%'
+                GROUP BY time_bucket
+                ORDER BY time_bucket
+                "#,
+            )
+            .bind(since)
+            .bind(until)
+            .bind(addr),
+            None => sqlx::query_as::<_, (i64, i64)>(
+                r#"
+                SELECT 
+                    (FLOOR(timestamp / 600) * 600)::BIGINT AS time_bucket,
+                    SUM(difficulty)::BIGINT AS total_difficulty
+                FROM shares
+                WHERE timestamp >= $1 AND timestamp < $2
+                GROUP BY time_bucket
+                ORDER BY time_bucket
+                "#,
+            )
+            .bind(since)
+            .bind(until),
+        };
+
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to get hashrate")?;
+        log::info!("get_hashrate took {}ms for address={:?}, since={}, until={}", start.elapsed().as_millis(), address, since, until);
+        Ok(rows)
     }
 
     pub async fn get_balances(&self, address: Option<&str>) -> Result<Vec<Balance>> {

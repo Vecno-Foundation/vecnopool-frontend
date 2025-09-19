@@ -16,10 +16,10 @@ mod db;
 mod models;
 mod ws;
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct HashratePoint {
     timestamp: i64,
-    hashrate: i64, // in hashes per second
+    hashrate: i64,
 }
 
 async fn ws_index(r: HttpRequest, stream: web::Payload, db: web::Data<Db>, srv: web::Data<Addr<WsServer>>) -> impl Responder {
@@ -28,6 +28,13 @@ async fn ws_index(r: HttpRequest, stream: web::Payload, db: web::Data<Db>, srv: 
 
 #[actix_web::get("/api/hashrate")]
 async fn get_hashrate(db: web::Data<Db>, query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
+    // Load WINDOW_TIME_MS for consistency
+    let window_time_ms: u64 = std::env::var("WINDOW_TIME_MS")
+        .map(|val| val.parse::<u64>().map_err(|e| anyhow::anyhow!("Invalid WINDOW_TIME_MS: {}", e)))
+        .unwrap_or(Ok(300_000))
+        .expect("Failed to parse WINDOW_TIME_MS");
+    let _window_time_secs = window_time_ms / 1000;
+
     let since = query
         .get("since")
         .and_then(|s| s.parse::<i64>().ok())
@@ -47,51 +54,25 @@ async fn get_hashrate(db: web::Data<Db>, query: web::Query<std::collections::Has
                 .as_secs() as i64
         });
     let address = query.get("address").map(|x| x.as_str());
-    let interval_secs = 60; // 1 minute calculations
+    let interval_secs = 600;
 
-    let query = if let Some(addr) = address {
-        sqlx::query_as::<_, (i64, i64)>(
-            r#"
-            SELECT 
-                (FLOOR(timestamp / $1) * $1)::BIGINT AS time_bucket,
-                SUM(difficulty)::BIGINT AS total_difficulty
-            FROM shares
-            WHERE timestamp >= $2 AND timestamp < $3 AND address LIKE $4 || '%'
-            GROUP BY time_bucket
-            ORDER BY time_bucket
-            "#,
-        )
-        .bind(interval_secs)
-        .bind(since)
-        .bind(until)
-        .bind(addr)
-    } else {
-        sqlx::query_as::<_, (i64, i64)>(
-            r#"
-            SELECT 
-                (FLOOR(timestamp / $1) * $1)::BIGINT AS time_bucket,
-                SUM(difficulty)::BIGINT AS total_difficulty
-            FROM shares
-            WHERE timestamp >= $2 AND timestamp < $3
-            GROUP BY time_bucket
-            ORDER BY time_bucket
-            "#,
-        )
-        .bind(interval_secs)
-        .bind(since)
-        .bind(until)
-    };
+    log::debug!("Fetching hashrate: address={:?}, since={}, until={}, interval_secs={}", address, since, until, interval_secs);
 
-    match query.fetch_all(&db.pool).await {
+    match db.get_hashrate(address, since, until, interval_secs).await {
         Ok(rows) => {
-            log::info!("Fetched {} hashrate rows", rows.len());
+            log::info!("Fetched {} hashrate rows for address={:?}", rows.len(), address);
             let points: Vec<HashratePoint> = rows
                 .into_iter()
-                .map(|(timestamp, total_difficulty)| HashratePoint {
-                    timestamp,
-                    hashrate: total_difficulty / interval_secs, // Hashrate = difficulty / time
+                .map(|(timestamp, total_difficulty)| {
+                    let hashrate = if total_difficulty > 0 {
+                        total_difficulty / interval_secs // Hashrate = difficulty / time
+                    } else {
+                        0
+                    };
+                    HashratePoint { timestamp, hashrate }
                 })
                 .collect();
+            log::debug!("Hashrate points: {:?}", points);
             HttpResponse::Ok().json(points)
         }
         Err(e) => {

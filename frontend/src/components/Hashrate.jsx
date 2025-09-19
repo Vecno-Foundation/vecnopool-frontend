@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { Line } from 'react-chartjs-2';
 import {
@@ -11,6 +11,7 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
+import debounce from 'lodash/debounce';
 
 ChartJS.register(
   CategoryScale,
@@ -24,11 +25,10 @@ ChartJS.register(
 
 const hashSuffix = (n) => {
   if (n < 1000) return [n, 'hash/s'];
-  if (n < 1000000) return [n / 1000, 'Khash/s'];
   if (n < 1000000000) return [n / 1000000, 'Mhash/s'];
   if (n < 1000000000000) return [n / 1000000000, 'Ghash/s'];
   if (n < 1000000000000000) return [n / 1000000000000, 'Thash/s'];
-  return [n / 1000000000000000, 'Phash/s'];
+  return [n, 'hash/s'];
 };
 
 function Hashrate({ address, ws }) {
@@ -45,151 +45,152 @@ function Hashrate({ address, ws }) {
       },
     ],
   });
-  const [yAxisUnit, setYAxisUnit] = useState('Ghash/s');
+  const [yAxisUnit, setYAxisUnit] = useState('Mhash/s');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const maxRetries = 3;
 
-  const fetchHashrate = async () => {
+  const fetchHashrate = useCallback(async () => {
     setLoading(true);
     try {
       const now = new Date();
       const midnightToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const since = Math.floor(midnightToday.getTime() / 1000);
       const currentTenMinStart = Math.floor(now.getTime() / 1000 / 600) * 600;
-      console.log('Time range:', { since, currentTenMinStart });
+      console.log('Fetching hashrate:', { address, since, until: currentTenMinStart, retryCount });
+
       const url = address
         ? `/api/hashrate?address=${encodeURIComponent(address)}&since=${since}&until=${currentTenMinStart}`
         : `/api/hashrate?since=${since}&until=${currentTenMinStart}`;
-      const response = await axios.get(url);
-      console.log('Hashrate API response:', response.data);
+      const response = await axios.get(url, { timeout: 15000 });
+      console.log('Raw API response:', response.data);
 
-      const tenMinInterval = 600;
-      const currentIntervalIndex = Math.floor((currentTenMinStart - since) / tenMinInterval);
-      const tenMinTimestamps = Array.from(
-        { length: currentIntervalIndex },
-        (_, i) => since + i * tenMinInterval
-      );
-      const labels = tenMinTimestamps.map((timestamp) =>
-        new Date(timestamp * 1000).toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false,
-        })
+      if (!Array.isArray(response.data)) {
+        throw new Error('Invalid API response: expected an array');
+      }
+
+      const interval_secs = 600;
+      const interval_count = Math.max(1, Math.floor((currentTenMinStart - since) / interval_secs) + 1);
+      const labels = Array.from(
+        { length: interval_count },
+        (_, i) => {
+          const timestamp = since + i * interval_secs;
+          return new Date(timestamp * 1000).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          });
+        }
       );
 
-      const tenMinData = Array(currentIntervalIndex).fill(0);
-      const tenMinUnits = Array(currentIntervalIndex).fill('hash/s');
-      const intervalCounts = Array(currentIntervalIndex).fill(0);
+      const data = Array(interval_count).fill(0);
       response.data.forEach((point) => {
         const pointTimestamp = point.timestamp;
-        const intervalsDiff = Math.floor((pointTimestamp - since) / tenMinInterval);
-        if (intervalsDiff >= 0 && intervalsDiff < currentIntervalIndex) {
-          const index = intervalsDiff;
-          const [value, unit] = hashSuffix(point.hashrate);
-          tenMinData[index] += value;
-          intervalCounts[index] += 1;
-          tenMinUnits[index] = unit;
+        const index = Math.round((pointTimestamp - since) / interval_secs);
+        if (index >= 0 && index < interval_count) {
+          data[index] = point.hashrate; // hashrate in hash/s
         }
       });
 
-      for (let i = 0; i < currentIntervalIndex; i++) {
-        if (intervalCounts[i] > 0) {
-          tenMinData[i] /= intervalCounts[i];
-        }
+      if (data.every(val => val === 0)) {
+        console.warn('No hashrate data available for the requested period');
       }
 
-      const pointRadii = Array(currentIntervalIndex).fill(5);
+      const maxHashrate = Math.max(...data, 0);
+      const [_, targetUnit] = hashSuffix(maxHashrate);
+      console.log(`Max hashrate: ${maxHashrate} hash/s, selected unit: ${targetUnit}`);
 
-      const unitCounts = tenMinUnits.reduce((acc, unit) => {
-        acc[unit] = (acc[unit] || 0) + 1;
-        return acc;
-      }, {});
-      const mostCommonUnit = Object.keys(unitCounts).reduce(
-        (a, b) => (unitCounts[a] > unitCounts[b] ? a : b),
-        'Ghash/s'
-      );
-
-      const convertedData = tenMinData.map((value, index) => {
-        const currentUnit = tenMinUnits[index];
-        if (currentUnit === mostCommonUnit || intervalCounts[index] === 0) return value;
-        const unitFactors = {
-          'hash/s': 1,
-          'Khash/s': 1000,
-          'Mhash/s': 1000000,
-          'Ghash/s': 1000000000,
-          'Thash/s': 1000000000000,
-          'Phash/s': 1000000000000000,
-        };
-        const valueInHashes = value * unitFactors[currentUnit];
-        const [convertedValue] = hashSuffix(valueInHashes);
-        return convertedValue;
+      const unitFactors = {
+        'hash/s': 1,
+        'Mhash/s': 1000000,
+        'Ghash/s': 1000000000,
+        'Thash/s': 1000000000000,
+      };
+      const convertedData = data.map(val => {
+        if (val === 0) return 0;
+        const [scaledValue, unit] = hashSuffix(val);
+        console.log(`Converting ${val} hash/s -> ${scaledValue} ${unit}`);
+        return val / unitFactors[targetUnit];
       });
 
       console.log('Processed hashrateData:', {
         labels,
         data: convertedData,
-        unit: mostCommonUnit,
+        unit: targetUnit,
       });
 
-      setYAxisUnit(mostCommonUnit);
       setHashrateData({
         labels,
         datasets: [
           {
-            label: address ? `Miner Hashrate (${mostCommonUnit})` : `Pool Hashrate (${mostCommonUnit})`,
+            label: address ? `Miner Hashrate (${targetUnit})` : `Pool Hashrate (${targetUnit})`,
             data: convertedData,
             borderColor: 'rgb(75, 192, 192)',
             backgroundColor: 'rgba(75, 192, 192, 0.5)',
             tension: 0.1,
-            pointRadius: pointRadii,
+            pointRadius: Array(interval_count).fill(5),
           },
         ],
       });
+      setYAxisUnit(targetUnit);
       setError(null);
+      setRetryCount(0);
     } catch (error) {
       console.error('Error fetching hashrate:', error);
-      setError('Failed to fetch hashrate');
+      if (retryCount < maxRetries) {
+        console.log(`Retrying fetchHashrate (attempt ${retryCount + 2})`);
+        setRetryCount(retryCount + 1);
+        setTimeout(fetchHashrate, 2000);
+      } else {
+        setError(`Failed to fetch hashrate data after ${maxRetries} retries: ${error.message}`);
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, [address, retryCount]);
+
+  const debouncedFetchHashrate = useCallback(debounce(fetchHashrate, 1000), [fetchHashrate]);
 
   useEffect(() => {
     fetchHashrate();
-    const interval = setInterval(fetchHashrate, 30000);
+    const interval = setInterval(fetchHashrate, 60000);
     return () => clearInterval(interval);
-  }, [address]);
+  }, [fetchHashrate]);
 
   useEffect(() => {
-    if (!ws) return;
-
+    if (!ws) {
+      console.warn('WebSocket prop is not provided');
+      return;
+    }
+    console.log('WebSocket state:', ws.readyState);
     const handleMessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        if (message.type === 'HashrateUpdated' && (!address || message.data === address)) {
-          fetchHashrate();
+        if (message.type === 'HashrateUpdated' && (!address || (message.data && message.data.includes(address)))) {
+          setRetryCount(0);
+          debouncedFetchHashrate();
         }
       } catch (err) {
         console.error('WebSocket message error:', err);
       }
     };
-
     ws.onmessage = handleMessage;
+    return () => { ws.onmessage = null; };
+  }, [ws, address, debouncedFetchHashrate]);
 
-    return () => {
-      ws.onmessage = null;
-    };
-  }, [ws, address]);
-
-  if (error) return <div className="text-red-500">{error}</div>;
+  if (error) return <div className="text-red-500 text-center">{error}</div>;
   if (loading) return (
-    <div className="flex justify-center">
+    <div className="flex justify-center items-center h-64">
       <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
     </div>
   );
+  if (!hashrateData.datasets[0].data.some(val => val !== 0)) {
+    return <div className="text-center">No hashrate data available for the selected period.</div>;
+  }
 
   return (
-    <div className="container mx-auto p-4 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+    <div className="container mx-auto p-4 bg-white dark:bg-gray-800 rounded-lg shadow-md" style={{ minHeight: '400px' }}>
       <Line
         data={hashrateData}
         options={{
@@ -203,7 +204,7 @@ function Hashrate({ address, ws }) {
             tooltip: {
               callbacks: {
                 label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(2)} ${yAxisUnit}`,
-                afterLabel: () => (address ? `Address: ${address}\nVecnoScan: https://vecnoscan.org/addresses/vecno:${address}` : ''),
+                afterLabel: () => (address ? `Address: ${address}\nVecnoScan: https://vecnoscan.org/addresses/${address}` : ''),
               },
             },
           },
