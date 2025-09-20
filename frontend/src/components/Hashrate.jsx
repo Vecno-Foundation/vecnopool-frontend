@@ -71,7 +71,7 @@ function Hashrate({ address, ws }) {
       }
 
       const interval_secs = 600;
-      const interval_count = Math.max(1, Math.floor((currentTenMinStart - since) / interval_secs) + 1);
+      const interval_count = Math.max(1, Math.floor((currentTenMinStart - since) / interval_secs));
       const labels = Array.from(
         { length: interval_count },
         (_, i) => {
