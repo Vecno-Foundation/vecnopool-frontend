@@ -3,28 +3,15 @@ import MinerHashrateStats from './components/MinerHashrateStats.jsx';
 import Balances from './components/Balances.jsx';
 import Blocks from './components/Blocks.jsx';
 import Payments from './components/Payments.jsx';
-import './styles/mobile.css'; // Import mobile CSS
+import './styles/mobile.css';
 
 function App() {
   const [address, setAddress] = useState('');
-  const [theme, setTheme] = useState('light');
-  const [ws, setWs] = useState(null);
+  const [theme] = useState('light');
 
   useEffect(() => {
     document.documentElement.className = theme;
   }, [theme]);
-
-  useEffect(() => {
-    const websocket = new WebSocket('ws://localhost:8080/ws');
-    websocket.onopen = () => console.log('WebSocket connected');
-    websocket.onclose = () => console.log('WebSocket disconnected');
-    websocket.onerror = (error) => console.error('WebSocket error:', error);
-    setWs(websocket);
-
-    return () => {
-      websocket.close();
-    };
-  }, []);
 
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300">
@@ -48,19 +35,19 @@ function App() {
         <div className="space-y-8">
           <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md">
             <h2 className="text-2xl font-semibold mb-4">Statistics</h2>
-            <MinerHashrateStats address={address} ws={ws} />
+            <MinerHashrateStats address={address} />
           </div>
           <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md">
             <h2 className="text-2xl font-semibold mb-4">Balances</h2>
-            <Balances address={address} ws={ws} />
+            <Balances address={address} />
           </div>
           <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md">
             <h2 className="text-2xl font-semibold mb-4">Mined Blocks</h2>
-            <Blocks ws={ws} />
+            <Blocks />
           </div>
           <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md">
             <h2 className="text-2xl font-semibold mb-4">Recent Payments</h2>
-            <Payments address={address} ws={ws} />
+            <Payments address={address} />
           </div>
         </div>
       </div>

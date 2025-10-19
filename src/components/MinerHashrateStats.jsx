@@ -31,7 +31,7 @@ const hashSuffix = (n) => {
   return [n, 'hash/s'];
 };
 
-function MinerHashrateStats({ address, ws }) {
+function MinerHashrateStats({ address }) {
   const [chartData, setChartData] = useState({
     labels: [],
     datasets: [
@@ -65,6 +65,8 @@ function MinerHashrateStats({ address, ws }) {
   const [retryCount, setRetryCount] = useState(0);
   const maxRetries = 3;
 
+  const API_BASE_URL = import.meta.env.MODE === 'development' ? '/api' : 'https://poolapi.vecnoscan.org/api';
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -75,21 +77,28 @@ function MinerHashrateStats({ address, ws }) {
       console.log('Fetching data:', { address, since, until: currentTenMinStart, retryCount });
 
       // Fetch shares for difficulty
-      const sharesResponse = await axios.get('/api/shares', {
+      const sharesResponse = await axios.get(`${API_BASE_URL}/shares`, {
         params: address ? { address, since, until: currentTenMinStart } : { since, until: currentTenMinStart },
         timeout: 15000,
       });
       console.log('Shares API response:', sharesResponse.data);
 
+      // Validate sharesResponse.data
+      if (!Array.isArray(sharesResponse.data)) {
+        console.warn('Invalid shares API response: expected an array, got:', sharesResponse.data);
+        sharesResponse.data = [];
+      }
+
       // Fetch hashrate
       const hashrateUrl = address
-        ? `/api/hashrate?address=${encodeURIComponent(address)}&since=${since}&until=${currentTenMinStart}`
-        : `/api/hashrate?since=${since}&until=${currentTenMinStart}`;
+        ? `${API_BASE_URL}/hashrate?address=${encodeURIComponent(address)}&since=${since}&until=${currentTenMinStart}`
+        : `${API_BASE_URL}/hashrate?since=${since}&until=${currentTenMinStart}`;
       const hashrateResponse = await axios.get(hashrateUrl, { timeout: 15000 });
       console.log('Hashrate API response:', hashrateResponse.data);
 
       if (!Array.isArray(hashrateResponse.data)) {
-        throw new Error('Invalid hashrate API response: expected an array');
+        console.warn('Invalid hashrate API response: expected an array, got:', hashrateResponse.data);
+        hashrateResponse.data = [];
       }
 
       const interval_secs = 600;
@@ -111,7 +120,7 @@ function MinerHashrateStats({ address, ws }) {
       sharesResponse.data.forEach((share) => {
         const index = Math.round((share.timestamp - since) / interval_secs);
         if (index >= 0 && index < interval_count) {
-          difficultyPoints[index] += Number(share.difficulty);
+          difficultyPoints[index] += Number(share.difficulty || 0);
         }
       });
 
@@ -121,7 +130,7 @@ function MinerHashrateStats({ address, ws }) {
         const pointTimestamp = point.timestamp;
         const index = Math.round((pointTimestamp - since) / interval_secs);
         if (index >= 0 && index < interval_count) {
-          hashratePoints[index] = point.hashrate; // hashrate in hash/s
+          hashratePoints[index] = point.hashrate || 0;
         }
       });
 
@@ -165,7 +174,7 @@ function MinerHashrateStats({ address, ws }) {
             backgroundColor: 'rgba(75, 192, 192, 0.5)',
             tension: 0.1,
             pointRadius: Array(interval_count).fill(5),
-            borderWidth: 2, 
+            borderWidth: 2,
             yAxisID: 'y-hashrate',
             z: 2,
           },
@@ -208,27 +217,6 @@ function MinerHashrateStats({ address, ws }) {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  useEffect(() => {
-    if (!ws) {
-      console.warn('WebSocket prop is not provided');
-      return;
-    }
-    console.log('WebSocket state:', ws.readyState);
-    const handleMessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'HashrateUpdated' && (!address || (message.data && message.data.includes(address)))) {
-          setRetryCount(0);
-          debouncedFetchData();
-        }
-      } catch (err) {
-        console.error('WebSocket message error:', err);
-      }
-    };
-    ws.onmessage = handleMessage;
-    return () => { ws.onmessage = null; };
-  }, [ws, address, debouncedFetchData]);
-
   const chartOptions = {
     responsive: true,
     plugins: {
@@ -239,7 +227,7 @@ function MinerHashrateStats({ address, ws }) {
       tooltip: {
         callbacks: {
           label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(2)} ${context.dataset.label.includes('Hashrate') ? yAxisUnit : ''}`,
-          afterLabel: () => (address ? `Address: ${address}\nVecnoScan: https://vecnoscan.org/addresses/vecno:${address}` : ''),
+          afterLabel: () => (address ? `Address: ${address}\n Vecnoscan: https://vecnoscan.org/addresses/vecno:${address}` : ''),
         },
       },
     },

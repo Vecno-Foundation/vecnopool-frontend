@@ -3,29 +3,30 @@ import axios from 'axios';
 import debounce from 'lodash/debounce';
 import '../styles/mobile.css';
 
-function Payments({ address, ws }) {
+function Payments({ address }) {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
   const maxRetries = 3;
 
+  const API_BASE_URL = import.meta.env.MODE === 'development' ? '/api' : 'https://poolapi.vecnoscan.org/api';
+
   const fetchPayments = useCallback(async () => {
     setLoading(true);
     try {
       const url = address
-        ? `/api/payments?address=${encodeURIComponent(address)}`
-        : '/api/payments';
+        ? `${API_BASE_URL}/payments?address=${encodeURIComponent(address)}`
+        : `${API_BASE_URL}/payments`;
       console.log('Fetching payments from:', url);
       const response = await axios.get(url, { timeout: 15000 });
       console.log('Payments response:', response.data);
       if (!Array.isArray(response.data)) {
-        throw new Error('Invalid payments API response: expected an array');
+        console.warn('Invalid payments API response: expected an array, got:', response.data);
+        setPayments([]);
+      } else {
+        setPayments(response.data);
       }
-      if (response.data.length === 0) {
-        console.log('No payments returned for address:', address);
-      }
-      setPayments(response.data);
       setError(null);
       setRetryCount(0);
     } catch (error) {
@@ -49,28 +50,6 @@ function Payments({ address, ws }) {
     const interval = setInterval(fetchPayments, 60000);
     return () => clearInterval(interval);
   }, [fetchPayments]);
-
-  useEffect(() => {
-    if (!ws) {
-      console.warn('WebSocket prop is not provided');
-      return;
-    }
-    console.log('WebSocket state:', ws.readyState);
-    const handleMessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        console.log('WebSocket message:', message);
-        if (message.type === 'PaymentAdded' && (!address || (message.data && message.data.includes(address)))) {
-          setRetryCount(0);
-          debouncedFetchPayments();
-        }
-      } catch (err) {
-        console.error('WebSocket message error:', err);
-      }
-    };
-    ws.onmessage = handleMessage;
-    return () => { ws.onmessage = null; };
-  }, [ws, address, debouncedFetchPayments]);
 
   if (error) return <div className="text-red-500 text-center">{error}</div>;
   if (loading) return (

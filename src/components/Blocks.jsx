@@ -2,19 +2,27 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import '../styles/mobile.css';
 
-function Blocks({ ws }) {
+function Blocks() {
   const [blocks, setBlocks] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const API_BASE_URL = import.meta.env.MODE === 'development' ? '/api' : 'https://poolapi.vecnoscan.org/api';
+
   const fetchBlocks = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('/api/blocks');
-      const sortedBlocks = response.data
-        .sort((a, b) => b.daa_score - a.daa_score)
-        .slice(0, 10);
-      setBlocks(sortedBlocks);
+      const response = await axios.get(`${API_BASE_URL}/blocks`);
+      console.log('Blocks API response:', response.data);
+      if (!Array.isArray(response.data)) {
+        console.warn('Invalid blocks API response: expected an array, got:', response.data);
+        setBlocks([]);
+      } else {
+        const sortedBlocks = response.data
+          .sort((a, b) => b.daa_score - a.daa_score)
+          .slice(0, 10);
+        setBlocks(sortedBlocks);
+      }
       setError(null);
     } catch (error) {
       console.error('Error fetching blocks:', error);
@@ -27,27 +35,6 @@ function Blocks({ ws }) {
   useEffect(() => {
     fetchBlocks();
   }, []);
-
-  useEffect(() => {
-    if (!ws) return;
-
-    const handleMessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'BlocksUpdated') {
-          fetchBlocks();
-        }
-      } catch (err) {
-        console.error('WebSocket message error:', err);
-      }
-    };
-
-    ws.onmessage = handleMessage;
-
-    return () => {
-      ws.onmessage = null;
-    };
-  }, [ws]);
 
   if (loading) {
     return (

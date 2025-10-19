@@ -2,19 +2,26 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import '../styles/mobile.css';
 
-function Balances({ address, ws }) {
+function Balances({ address }) {
   const [balances, setBalances] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const API_BASE_URL = import.meta.env.MODE === 'development' ? '/api' : 'https://poolapi.vecnoscan.org/api';
+
   const fetchBalances = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('/api/balances', {
+      const response = await axios.get(`${API_BASE_URL}/balances`, {
         params: address ? { address } : {},
       });
       console.log('Balances API response:', response.data);
-      setBalances(response.data);
+      if (!Array.isArray(response.data)) {
+        console.warn('Invalid balances API response: expected an array, got:', response.data);
+        setBalances([]);
+      } else {
+        setBalances(response.data);
+      }
       setError(null);
     } catch (err) {
       console.error('Error fetching balances:', err);
@@ -27,27 +34,6 @@ function Balances({ address, ws }) {
   useEffect(() => {
     fetchBalances();
   }, [address]);
-
-  useEffect(() => {
-    if (!ws) return;
-
-    const handleMessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'BalancesUpdated' && (!address || message.data === address)) {
-          fetchBalances();
-        }
-      } catch (err) {
-        console.error('WebSocket message error:', err);
-      }
-    };
-
-    ws.onmessage = handleMessage;
-
-    return () => {
-      ws.onmessage = null;
-    };
-  }, [ws, address]);
 
   if (error) return <div className="text-red-500">{error}</div>;
   if (loading) return (
