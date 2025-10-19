@@ -8,13 +8,13 @@ export default defineConfig({
     port: 3333,
     proxy: {
       '/api': {
-        target: 'https://poolapi.vecnoscan.org/',
+        target: 'https://poolapi.vecnoscan.org',
         changeOrigin: true,
-        secure: false,
+        secure: true,
       },
       '/ws': {
-        target: 'ws://poolapi.vecnoscan.org/',
-        ws: true,
+        target: 'ws://poolapi.vecnoscan.org',
+        ws: false,
       },
     },
   },
