@@ -1,0 +1,20 @@
+{
+  "name": "Vecno Mining Pool",
+  "short_name": "VecnoPool",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a73e8",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "200x200",
+      "type": "image/png"
+    }
+  ]
+}

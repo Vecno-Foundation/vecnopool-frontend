@@ -1,0 +1,176 @@
+/* src/styles/mobile.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* General container adjustments */
+@media (max-width: 640px) {
+  .container {
+    @apply p-2; /* Reduced from p-4 (16px) */
+  }
+
+  h1 {
+    @apply text-2xl; /* Reduced from text-3xl */
+  }
+
+  h2 {
+    @apply text-lg mb-2; /* Reduced from text-2xl, mb-4 */
+  }
+
+  /* Input field */
+  .address-input {
+    @apply text-sm p-2; /* Smaller text and padding */
+  }
+}
+
+/* Table container for card layout */
+.table-container {
+  @apply overflow-x-auto; /* Fallback for scrollable tables */
+}
+
+/* Card layout for all tables (Blocks, Balances, Payments) */
+@media (max-width: 640px) {
+  .table-container {
+    @apply flex flex-col gap-4 overflow-x-hidden; /* Prevent horizontal scrolling */
+  }
+
+  table {
+    @apply block;
+  }
+
+  thead {
+    @apply hidden; /* Hide headers on mobile */
+  }
+
+  tbody {
+    @apply block;
+  }
+
+  tr {
+    @apply block bg-white dark:bg-gray-800 rounded-lg shadow-md mb-4 p-3;
+  }
+
+  td {
+    @apply flex items-center text-left py-1 px-2 text-sm; /* Flex for alignment */
+  }
+
+  td:before {
+    content: attr(data-label);
+    @apply font-bold text-xs min-w-[100px]; /* Fixed width for labels */
+  }
+
+  /* Add spacing for Available Balance label */
+  .balances-table td:nth-child(2):before {
+    @apply mr-4; /* Add margin-right for spacing */
+  }
+
+  td:first-child {
+    @apply border-b dark:border-gray-600 pb-2 mb-2;
+  }
+
+  /* Truncated address and hash links on mobile */
+  td a.truncated {
+    @apply inline-block p-1 text-blue-500 dark:text-blue-400 max-w-[150px];
+    white-space: nowrap;
+    overflow: hidden;
+    position: relative;
+  }
+
+  td a.truncated:after {
+    content: '...';
+    position: absolute;
+    right: 0;
+    background: inherit;
+  }
+
+  td a.truncated > span {
+    @apply inline-block;
+    max-width: calc(150px - 1.5rem); /* Adjust for ellipsis width */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+    display: inline-block;
+    vertical-align: bottom;
+  }
+
+  /* Touch feedback for links */
+  td a.truncated:active {
+    @apply bg-blue-100 dark:bg-blue-900;
+  }
+
+  /* Specific labels for Blocks */
+  .blocks-table td:nth-child(1):before {
+    content: 'Block Hash:';
+  }
+  .blocks-table td:nth-child(2):before {
+    content: 'DAA Score:';
+  }
+  .blocks-table td:nth-child(3):before {
+    content: 'Amount:';
+  }
+  .blocks-table td:nth-child(4):before {
+    content: 'Timestamp:';
+  }
+
+  /* Specific labels for Balances */
+  .balances-table td:nth-child(1):before {
+    content: 'Address:';
+  }
+  .balances-table td:nth-child(2):before {
+    content: 'Available Balance:';
+  }
+  .balances-table td:nth-child(3):before {
+    content: 'Total Earned:';
+  }
+
+  /* Specific labels for Payments */
+  .payments-table td:nth-child(1):before {
+    content: 'Address:';
+  }
+  .payments-table td:nth-child(2):before {
+    content: 'Amount:';
+  }
+  .payments-table td:nth-child(3):before {
+    content: 'Transaction ID:';
+  }
+  .payments-table td:nth-child(4):before {
+    content: 'Timestamp:';
+  }
+}
+
+/* Full address and hash links on desktop */
+@media (min-width: 641px) {
+  td a.truncated {
+    @apply inline-block p-1 text-blue-500 dark:text-blue-400; /* No truncation */
+  }
+}
+
+/* Chart adjustments for MinerHashrateStats */
+@media (max-width: 640px) {
+  .chart-container {
+    @apply h-64; /* Smaller chart height */
+  }
+
+  .chart-container canvas {
+    @apply text-sm;
+  }
+}
+
+/* Spinner, error, and empty states */
+@media (max-width: 640px) {
+  .spinner {
+    @apply w-6 h-6 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin;
+  }
+
+  .text-red-500,
+  .text-gray-500 {
+    @apply text-sm p-2 text-center;
+  }
+}
+
+/* Keyframes for spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
